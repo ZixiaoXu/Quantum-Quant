@@ -117,8 +117,14 @@ def get_data():
     assert x_train[0][2, 3] == y_train[0][1]
     assert x_train[0][3, 3] == y_train[0][2]
     assert not np.isnan(x_train[0]).any()
-    print("Done")
     return x_train, y_train, x_val, y_val, x_test, y_test
 
-    if __name__ == "__main__":
-        get_data()
+def bounded_map(x):
+    return np.tanh(x) * np.pi / 2
+
+def inv_bounded_map(x):
+    return np.arctanh(x * 2 / np.pi)
+
+if __name__ == "__main__":
+    assert abs(inv_bounded_map(bounded_map(.8543)) - .8543) < 1e-6
+    get_data()
