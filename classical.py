@@ -1,16 +1,7 @@
 import os
-import csv
-import sys
-import logging
-import random
 import numpy as np
-import time
 import pandas as pd
-import matplotlib.pyplot as plt
 from tqdm import tqdm
-from sklearn.metrics import accuracy_score
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import r2_score
 import zipfile
 SEQUENCE_LENGTH = 10
 def get_past(df):
