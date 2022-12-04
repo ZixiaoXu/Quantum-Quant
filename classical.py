@@ -3,8 +3,16 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import zipfile
+
+import tensorflow as tf
+from tensorflow.python.keras import Model, Input
+from tensorflow.python.keras.losses import Huber
+from tensorflow.python.keras.layers import Dense, LSTM
+from tensorflow.python.keras.optimizers import adam_v2
+
 def get_past(df):
-    return df.loc[df['Date'] <= '2019-03-31']
+    # Get old but not that old data
+    return df.loc[(df['Date'] <= '2019-03-31') & (df['Date'] >= '2019-01-01')]
 
 # Note: We reserve the first 30 days to initalize the RNN,
 # but do not score the model on these days
@@ -18,13 +26,13 @@ def split_data(all_dfs, n_stocks, n_stocks_val):
   val_stock_inds = perm[n_stocks_val: 2 * n_stocks_val]
   test_stock_inds = perm[:n_stocks_val]
 
-  x_train = [get_past(df) for df in all_dfs[perm[2*n_stocks_val:]]]
-  x_val = [df for df in all_dfs[val_stock_inds]]
-  x_test = [df for df in all_dfs[test_stock_inds]]
+  x_train = [get_past(df) for df in all_dfs]
+  x_val = [get_future(df) for df in all_dfs[val_stock_inds]]
+  x_test = [get_future(df) for df in all_dfs[test_stock_inds]]
   return x_train, x_val, x_test
 
 def normalize(df, sequence_length):
-  volume = df['Volume'][1:]
+  volume = df['Volume'].iloc[1:]
   other = df.drop('Volume', axis=1)
   # Normalize everything but volume
   other += 1e-3
@@ -50,10 +58,14 @@ def normalize(df, sequence_length):
     base = [[0 for _ in range(cut_off.shape[1])] for _ in range(rows_to_prepend)]
     df_prepend = pd.DataFrame(base, columns=df.columns)
     cut_off = df_prepend.append(cut_off, ignore_index=True)
+
   return cut_off
+
 def preprocess_data(raw_data, sequence_length):
   normalized = [normalize(df.drop("Date", axis=1), sequence_length) for df in raw_data]
-  filtered = [df for df in normalized if df is not None]
+  # We clip for some numerical stability, but it may make some
+  # answers wrong/ easier to predict.
+  filtered = [df.clip(-5, 5) for df in normalized if df is not None]
   # x[1].close is y[0]
   x = [df[:-1] for df in filtered]
   y = [df["Close"].shift(-1).iloc[:-1] for df in filtered]
@@ -65,7 +77,6 @@ def preprocess_data(raw_data, sequence_length):
       out_y.append(np.array(ye, dtype=np.float32))
     assert not xe.isnull().values.any()
     assert not ye.isnull().values.any()
-
   return out_x, out_y
 def extract_zip():
     print("Extracting zip")
@@ -75,7 +86,7 @@ def extract_zip():
 
 def get_data(sequence_length, n_stocks_train=1000, n_stocks_val=50):
     np.random.seed(0)
-    TOTAL_STOCKS_ORIGINAL = min(len(os.listdir('data/archive/stocks')), n_stocks_train + 2 * n_stocks_val)
+    TOTAL_STOCKS_ORIGINAL = min(len(os.listdir('data/archive/stocks')), max(n_stocks_train, 2 * n_stocks_val))
     N_STOCKS = TOTAL_STOCKS_ORIGINAL
     stock_paths = np.random.permutation(os.listdir('data/archive/stocks'))[:N_STOCKS]
 
@@ -108,13 +119,45 @@ def get_data(sequence_length, n_stocks_train=1000, n_stocks_val=50):
     return x_train, y_train, x_val, y_val, x_test, y_test
 
 def bounded_map(x):
-    # We clip for some numerical stability, but it may make some
-    # answers wrong/ easier to predict.
-    return np.arctan(np.clip(x, -5, 5))
+    return np.arctan(x)
 
 def inv_bounded_map(x):
     return np.tan(x)
 
+def make_lstm(sequence_length, input_dim, num_hidden) -> Model:
+    input = Input(shape=(sequence_length, input_dim))
+    lstm = LSTM(num_hidden, dropout=.3)(input)
+    logits = Dense(1, activation=None)(lstm)
+    model = Model(input, logits)
+    model.compile(optimizer=adam_v2.Adam(1.5e-3),
+              loss=Huber(),
+              metrics=['mse'])
+    model.summary()
+    return model
+
+def train_model(model: Model, train_dataset: tf.data.Dataset, val_dataset: tf.data.Dataset):
+    epochs = 30
+    tensorboard_callback = [tf.keras.callbacks.TensorBoard(log_dir='tf_logs'),
+      tf.keras.callbacks.EarlyStopping(
+        monitor='val_mse',
+        patience=5,
+        restore_best_weights=True
+      ),
+      tf.keras.callbacks.ModelCheckpoint(
+        filepath='./model_checkpoints',
+        save_weights_only=True,
+        monitor='val_mse',
+        mode='min',
+        save_best_only=True)
+      ]
+    model.fit(
+        train_dataset.batch(32),
+        validation_data=val_dataset.batch(32),
+        epochs=epochs,
+        callbacks=[tensorboard_callback]
+        )
+    return model
 if __name__ == "__main__":
     assert abs(inv_bounded_map(bounded_map(.8543)) - .8543) < 1e-6
     assert abs(inv_bounded_map(bounded_map(-.8543)) + .8543) < 1e-6
+    get_data(5,20,5)
