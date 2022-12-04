@@ -12,12 +12,10 @@ from tensorflow.python.keras.optimizers import adam_v2
 
 def get_past(df):
     # Get old but not that old data
-    return df.loc[(df['Date'] <= '2019-03-31') & (df['Date'] >= '2019-01-01')]
+    return df.loc[(df['Date'] <= '2019-05-31') & (df['Date'] >= '2019-04-01')]
 
-# Note: We reserve the first 30 days to initalize the RNN,
-# but do not score the model on these days
 def get_future(df):
-  return df.loc[df['Date'] >= '2019-03-01']
+  return df.loc[(df['Date'] >= '2019-06-01') & (df['Date'] >= '2019-05-01')]
 
 def split_data(all_dfs, n_stocks, n_stocks_val):
   # There is one test/eval data point for each train data point
@@ -38,7 +36,7 @@ def normalize(df, sequence_length):
   other += 1e-3
   normalized = np.log(other.shift(1)/other)[1:]
   normalized = normalized.fillna(0) # Remove NaN
-  normalized = normalized / (normalized.std(axis=0)+ 1e-3)
+  normalized = normalized / .03 # (normalized.std(axis=0)+ 1e-3)
 
   if normalized.isna().values.any():
     return None  # idk why this can happen
@@ -57,8 +55,7 @@ def normalize(df, sequence_length):
       return None
     base = [[0 for _ in range(cut_off.shape[1])] for _ in range(rows_to_prepend)]
     df_prepend = pd.DataFrame(base, columns=df.columns)
-    cut_off = df_prepend.append(cut_off, ignore_index=True)
-
+    cut_off = pd.concat([df_prepend, cut_off], ignore_index=True)
   return cut_off
 
 def preprocess_data(raw_data, sequence_length):
@@ -78,6 +75,7 @@ def preprocess_data(raw_data, sequence_length):
     assert not xe.isnull().values.any()
     assert not ye.isnull().values.any()
   return out_x, out_y
+
 def extract_zip():
     print("Extracting zip")
     path_to_zip_file = "data/archive.zip"
@@ -107,8 +105,8 @@ def get_data(sequence_length, n_stocks_train=1000, n_stocks_val=50):
 
     assert x_train[17].shape == (sequence_length, 6)
     assert y_train[17].shape == (sequence_length,)
-    
-        # Shapes correct
+
+    # Shapes correct
     assert(x_train[0].shape[1] == 6)
     assert(x_train[17].shape[0] == y_train[17].shape[0])
     # Each output is passed to next input
@@ -160,4 +158,10 @@ def train_model(model: Model, train_dataset: tf.data.Dataset, val_dataset: tf.da
 if __name__ == "__main__":
     assert abs(inv_bounded_map(bounded_map(.8543)) - .8543) < 1e-6
     assert abs(inv_bounded_map(bounded_map(-.8543)) + .8543) < 1e-6
-    get_data(5,20,5)
+    x_train, y_train, x_val, y_val, x_test, y_test = get_data(5, 500, 500)
+    print(np.mean(y_train))
+    print(np.mean(y_val))
+    print(np.mean(y_test))
+    print(np.std(y_train))
+    print(np.std(y_val))
+    print(np.std(y_test))
