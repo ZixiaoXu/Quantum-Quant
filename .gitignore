@@ -2,3 +2,4 @@ data
 .ipynb*
 __pycache__/*
 .vscode/*
+tf_logs
