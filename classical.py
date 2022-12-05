@@ -175,6 +175,7 @@ def contant_baseline(y_train, y_val, y_test):
         for y in test_set:
             losses.append((y[-1] - pred_value) ** 2)
         print(f"{name} Loss: {sum(losses) / len(losses)}")
+    return pred_value
 
 def tf_baseline(num_hidden, sequence_length, x_train, y_train, x_val, y_val, x_test, y_test):
     num_hidden = 64
